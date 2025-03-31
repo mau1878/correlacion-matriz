@@ -6,3 +6,4 @@ matplotlib
 datetime
 requests
 scipy
+fake_useragent
