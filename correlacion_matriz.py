@@ -173,7 +173,7 @@ def plot_correlation_matrix(data, title, method='pearson'):
     return fig
 
 def validate_tickers(tickers):
-    return all(re.match(r'^[A-Za-z0-9./]+$', t) for t in tickers)
+    return all(re.match(r'^[A-Za-z0-9./=]+$', t) for t in tickers)
 
 def main():
     data_sources = ['YFinance', 'AnálisisTécnico.com.ar', 'IOL (Invertir Online)', 'ByMA Data']
