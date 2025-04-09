@@ -13,7 +13,7 @@ import re
 CLOSE_COLUMN = 'Close'
 MAX_TICKERS = 13
 DEFAULT_START_DATE = pd.to_datetime("2023-01-01")
-DEFAULT_END_DATE = pd.to_datetime(datetime.today().date())  # End at today’s date
+DEFAULT_END_DATE = pd.to_datetime(datetime.today().date())  # Today’s date
 CACHE_TTL = 86400  # 24 hours
 
 st.set_page_config(layout="wide")
@@ -38,10 +38,13 @@ def fetch_data_from_api(url, params, cookies, headers, parse_func, source_name, 
 
 # Data source functions
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def descargar_datos_yfinance(tickers, start, end, resolution='D'):
+def descargar_datos_yfinance(tickers, start, end, resolution='1d'):
     try:
+        st.write(f"Debug: Fetching {tickers} from {start} to {end} with resolution {resolution}")
         data = yf.download(tickers=' '.join(tickers), start=start, end=end, interval=resolution, group_by='ticker')
-        st.write(f"Debug: yfinance returned data for {tickers} with shape {data.shape}")  # Debugging output
+        st.write(f"Debug: yfinance returned data for {tickers} with shape {data.shape}")
+        if data.empty:
+            st.warning(f"No data returned by yfinance for {tickers}. Check date range or ticker validity.")
         if isinstance(data.columns, pd.MultiIndex):
             return {ticker: data[ticker] for ticker in tickers if ticker in data.columns}
         else:
@@ -101,7 +104,7 @@ def descargar_datos_byma(ticker, start_date, end_date):
     return fetch_data_from_api('https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free/chart/historical-series/history', params, cookies, headers, parse_byma, 'ByMA Data', ticker)
 
 @st.cache_data(ttl=CACHE_TTL, hash_funcs={date: lambda x: x.isoformat(), str: lambda x: x})
-def fetch_stock_data(ticker, start_date, end_date, source='YFinance', resolution='D'):
+def fetch_stock_data(ticker, start_date, end_date, source='YFinance', resolution='1d'):
     start_date = start_date if isinstance(start_date, date) else datetime.strptime(start_date, '%Y-%m-%d').date()
     end_date = end_date if isinstance(end_date, date) else datetime.strptime(end_date, '%Y-%m-%d').date()
     if source == 'YFinance':
@@ -125,7 +128,7 @@ def calculate_ticker_ratio(data1, data2):
     close2 = data2.reindex(common_dates)[CLOSE_COLUMN]
     return pd.DataFrame({CLOSE_COLUMN: close1 / close2}, index=common_dates)
 
-def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, ma_type, resolution='D'):
+def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, ma_type, resolution='1d'):
     all_data = pd.DataFrame()
     if source == 'YFinance':
         data_dict = descargar_datos_yfinance([t for t in tickers if '/' not in t], start_date, end_date, resolution)
@@ -179,7 +182,7 @@ def main():
     data_sources = ['YFinance', 'AnálisisTécnico.com.ar', 'IOL (Invertir Online)', 'ByMA Data']
     correlation_methods = ['pearson', 'spearman', 'kendall']
     ma_types = ["Simple", "Exponencial"]
-    resolutions = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
+    resolutions = {"Daily": "1d", "Weekly": "1wk", "Monthly": "1mo"}  # Correct yfinance intervals
 
     with st.sidebar:
         selected_source = st.selectbox('Seleccionar Fuente de Datos', data_sources)
@@ -223,7 +226,7 @@ def main():
                     if st.checkbox("Mostrar Matriz Numérica"):
                         st.write(correlation_data.corr(method=selected_method))
                 else:
-                    st.error("No data available for the selected tickers and date range. Verify ticker symbols and dates.")
+                    st.error("No data available for the selected tickers and date range. Verify ticker symbols, dates, and resolution.")
 
 if __name__ == "__main__":
     main()
