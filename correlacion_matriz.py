@@ -13,7 +13,7 @@ import re
 CLOSE_COLUMN = 'Close'
 MAX_TICKERS = 13
 DEFAULT_START_DATE = pd.to_datetime("2023-01-01")
-DEFAULT_END_DATE = pd.to_datetime("2024-12-31")
+DEFAULT_END_DATE = pd.to_datetime(datetime.today().date())  # End at today’s date
 CACHE_TTL = 86400  # 24 hours
 
 st.set_page_config(layout="wide")
@@ -41,6 +41,7 @@ def fetch_data_from_api(url, params, cookies, headers, parse_func, source_name, 
 def descargar_datos_yfinance(tickers, start, end, resolution='D'):
     try:
         data = yf.download(tickers=' '.join(tickers), start=start, end=end, interval=resolution, group_by='ticker')
+        st.write(f"Debug: yfinance returned data for {tickers} with shape {data.shape}")  # Debugging output
         if isinstance(data.columns, pd.MultiIndex):
             return {ticker: data[ticker] for ticker in tickers if ticker in data.columns}
         else:
@@ -99,12 +100,12 @@ def descargar_datos_byma(ticker, start_date, end_date):
     params = {'symbol': symbol, 'resolution': 'D', 'from': str(from_timestamp), 'to': str(to_timestamp)}
     return fetch_data_from_api('https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free/chart/historical-series/history', params, cookies, headers, parse_byma, 'ByMA Data', ticker)
 
-@st.cache_data(ttl=CACHE_TTL, hash_funcs={date: lambda x: x.isoformat()})
-def fetch_stock_data(ticker, start_date, end_date, source='YFinance'):
+@st.cache_data(ttl=CACHE_TTL, hash_funcs={date: lambda x: x.isoformat(), str: lambda x: x})
+def fetch_stock_data(ticker, start_date, end_date, source='YFinance', resolution='D'):
     start_date = start_date if isinstance(start_date, date) else datetime.strptime(start_date, '%Y-%m-%d').date()
     end_date = end_date if isinstance(end_date, date) else datetime.strptime(end_date, '%Y-%m-%d').date()
     if source == 'YFinance':
-        return descargar_datos_yfinance([ticker], start_date, end_date).get(ticker, pd.DataFrame())
+        return descargar_datos_yfinance([ticker], start_date, end_date, resolution).get(ticker, pd.DataFrame())
     elif source == 'AnálisisTécnico.com.ar':
         return descargar_datos_analisistecnico(ticker, start_date, end_date)
     elif source == 'IOL (Invertir Online)':
@@ -129,13 +130,13 @@ def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, 
     if source == 'YFinance':
         data_dict = descargar_datos_yfinance([t for t in tickers if '/' not in t], start_date, end_date, resolution)
     else:
-        data_dict = {t: fetch_stock_data(t, start_date, end_date, source) for t in tickers if '/' not in t}
+        data_dict = {t: fetch_stock_data(t, start_date, end_date, source, resolution) for t in tickers if '/' not in t}
 
     for ticker in tickers:
         if '/' in ticker:
             ticker1, ticker2 = [t.strip() for t in ticker.split('/')]
-            data1 = data_dict.get(ticker1, fetch_stock_data(ticker1, start_date, end_date, source))
-            data2 = data_dict.get(ticker2, fetch_stock_data(ticker2, start_date, end_date, source))
+            data1 = data_dict.get(ticker1, fetch_stock_data(ticker1, start_date, end_date, source, resolution))
+            data2 = data_dict.get(ticker2, fetch_stock_data(ticker2, start_date, end_date, source, resolution))
             try:
                 stock_data = calculate_ticker_ratio(data1, data2)
             except ValueError as e:
@@ -197,7 +198,7 @@ def main():
         tickers_input = st.text_input("Ingrese hasta 13 Tickers o Relaciones (ej: AAPL, MSFT, AAPL/MSFT)", 
                                       value="AAPL, MSFT, GOOG, TSLA, AMZN, NVDA, META, UNH, JPM, V, XOM")
         start_date = st.date_input("Fecha de Inicio", value=DEFAULT_START_DATE, min_value=pd.to_datetime("1980-01-01"))
-        end_date = st.date_input("Fecha de Fin", value=DEFAULT_END_DATE)
+        end_date = st.date_input("Fecha de Fin", value=DEFAULT_END_DATE, max_value=datetime.today().date())
         show_data = st.checkbox("Mostrar Datos Crudos")
         confirm_data = st.button("Confirmar Datos")
 
