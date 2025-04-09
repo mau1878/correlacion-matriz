@@ -11,7 +11,6 @@ import re
 
 # Constants
 CLOSE_COLUMN = 'Close'
-DAILY_RESOLUTION = 'D'
 MAX_TICKERS = 13
 DEFAULT_START_DATE = pd.to_datetime("2023-01-01")
 DEFAULT_END_DATE = pd.to_datetime("2024-12-31")
@@ -39,9 +38,9 @@ def fetch_data_from_api(url, params, cookies, headers, parse_func, source_name, 
 
 # Data source functions
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def descargar_datos_yfinance(tickers, start, end):
+def descargar_datos_yfinance(tickers, start, end, resolution='D'):
     try:
-        data = yf.download(tickers=' '.join(tickers), start=start, end=end, group_by='ticker')
+        data = yf.download(tickers=' '.join(tickers), start=start, end=end, interval=resolution, group_by='ticker')
         if isinstance(data.columns, pd.MultiIndex):
             return {ticker: data[ticker] for ticker in tickers if ticker in data.columns}
         else:
@@ -66,7 +65,7 @@ def descargar_datos_analisistecnico(ticker, start_date, end_date):
     to_timestamp = int(datetime.combine(end_date, datetime.max.time()).timestamp())
     cookies = {'ChyrpSession': '0e2b2109d60de6da45154b542afb5768', 'i18next': 'es', 'PHPSESSID': '5b8da4e0d96ab5149f4973232931f033'}
     headers = {'accept': '*/*', 'content-type': 'text/plain', 'dnt': '1', 'referer': 'https://analisistecnico.com.ar/'}
-    params = {'symbol': ticker.replace('.BA', ''), 'resolution': DAILY_RESOLUTION, 'from': str(from_timestamp), 'to': str(to_timestamp)}
+    params = {'symbol': ticker.replace('.BA', ''), 'resolution': 'D', 'from': str(from_timestamp), 'to': str(to_timestamp)}
     return fetch_data_from_api('https://analisistecnico.com.ar/services/datafeed/history', params, cookies, headers, parse_analisistecnico, 'AnálisisTécnico.com.ar', ticker)
 
 def parse_iol(data):
@@ -81,7 +80,7 @@ def descargar_datos_iol(ticker, start_date, end_date):
     to_timestamp = int(datetime.combine(end_date, datetime.max.time()).timestamp())
     cookies = {'intencionApertura': '0', '__RequestVerificationToken': 'DTGdEz0miQYq1kY8y4XItWgHI9HrWQwXms6xnwndhugh0_zJxYQvnLiJxNk4b14NmVEmYGhdfSCCh8wuR0ZhVQ-oJzo1', 'isLogged': '1', 'uid': '1107644'}
     headers = {'accept': '*/*', 'content-type': 'text/plain', 'referer': 'https://iol.invertironline.com'}
-    params = {'symbolName': ticker.replace('.BA', ''), 'exchange': 'BCBA', 'from': str(from_timestamp), 'to': str(to_timestamp), 'resolution': DAILY_RESOLUTION}
+    params = {'symbolName': ticker.replace('.BA', ''), 'exchange': 'BCBA', 'from': str(from_timestamp), 'to': str(to_timestamp), 'resolution': 'D'}
     return fetch_data_from_api('https://iol.invertironline.com/api/cotizaciones/history', params, cookies, headers, parse_iol, 'IOL (Invertir Online)', ticker)
 
 def parse_byma(data):
@@ -97,7 +96,7 @@ def descargar_datos_byma(ticker, start_date, end_date):
     cookies = {'JSESSIONID': '5080400C87813D22F6CAF0D3F2D70338', '_fbp': 'fb.2.1728347943669.954945632708052302'}
     headers = {'Accept': 'application/json, text/plain, */*', 'Referer': 'https://open.bymadata.com.ar/'}
     symbol = ticker.replace('.BA', '') + (' 24HS' if not ticker.endswith(' 24HS') else '')
-    params = {'symbol': symbol, 'resolution': DAILY_RESOLUTION, 'from': str(from_timestamp), 'to': str(to_timestamp)}
+    params = {'symbol': symbol, 'resolution': 'D', 'from': str(from_timestamp), 'to': str(to_timestamp)}
     return fetch_data_from_api('https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free/chart/historical-series/history', params, cookies, headers, parse_byma, 'ByMA Data', ticker)
 
 @st.cache_data(ttl=CACHE_TTL, hash_funcs={date: lambda x: x.isoformat()})
@@ -125,10 +124,10 @@ def calculate_ticker_ratio(data1, data2):
     close2 = data2.reindex(common_dates)[CLOSE_COLUMN]
     return pd.DataFrame({CLOSE_COLUMN: close1 / close2}, index=common_dates)
 
-def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, ma_type):
+def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, ma_type, resolution='D'):
     all_data = pd.DataFrame()
     if source == 'YFinance':
-        data_dict = descargar_datos_yfinance([t for t in tickers if '/' not in t], start_date, end_date)
+        data_dict = descargar_datos_yfinance([t for t in tickers if '/' not in t], start_date, end_date, resolution)
     else:
         data_dict = {t: fetch_stock_data(t, start_date, end_date, source) for t in tickers if '/' not in t}
 
@@ -179,6 +178,7 @@ def main():
     data_sources = ['YFinance', 'AnálisisTécnico.com.ar', 'IOL (Invertir Online)', 'ByMA Data']
     correlation_methods = ['pearson', 'spearman', 'kendall']
     ma_types = ["Simple", "Exponencial"]
+    resolutions = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
 
     with st.sidebar:
         selected_source = st.selectbox('Seleccionar Fuente de Datos', data_sources)
@@ -191,6 +191,9 @@ def main():
             """)
         ma_periods = st.number_input("Periodos de Media Móvil", min_value=1, value=1, step=1)
         ma_type = st.selectbox("Tipo de Media Móvil", ma_types)
+        selected_resolution = st.selectbox("Resolución Temporal", resolutions.keys(), index=0)
+        if selected_source != 'YFinance':
+            st.warning("Weekly and Monthly resolutions are only supported for YFinance.")
         tickers_input = st.text_input("Ingrese hasta 13 Tickers o Relaciones (ej: AAPL, MSFT, AAPL/MSFT)", 
                                       value="AAPL, MSFT, GOOG, TSLA, AMZN, NVDA, META, UNH, JPM, V, XOM")
         start_date = st.date_input("Fecha de Inicio", value=DEFAULT_START_DATE, min_value=pd.to_datetime("1980-01-01"))
@@ -203,16 +206,17 @@ def main():
         if len(tickers) > MAX_TICKERS:
             st.error(f"Máximo {MAX_TICKERS} tickers permitidos.")
         elif not validate_tickers(tickers):
-            st.error("Tickers inválidos. Use solo letras, números, puntos o barras.")
+            st.error("Tickers inválidos. Use solo letras, números, puntos, barras o signos igual.")
         else:
             with st.spinner('Obteniendo y procesando datos...'):
-                correlation_data = prepare_correlation_data(tickers, start_date, end_date, selected_source, ma_periods, ma_type)
+                resolution = resolutions[selected_resolution]
+                correlation_data = prepare_correlation_data(tickers, start_date, end_date, selected_source, ma_periods, ma_type, resolution)
                 if not correlation_data.empty:
                     if show_data:
                         st.subheader("Datos Crudos")
                         st.dataframe(correlation_data)
                     fig = plot_correlation_matrix(correlation_data, 
-                                                 f'Matriz de Correlación ({selected_method.capitalize()}) desde {start_date} hasta {end_date}', 
+                                                 f'Matriz de Correlación ({selected_method.capitalize()}) desde {start_date} hasta {end_date} ({selected_resolution})', 
                                                  method=selected_method)
                     st.pyplot(fig, dpi=300)
                     if st.checkbox("Mostrar Matriz Numérica"):
