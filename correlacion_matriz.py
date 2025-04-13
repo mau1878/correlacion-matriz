@@ -164,16 +164,20 @@ def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, 
                 continue
         
         close_prices = stock_data[CLOSE_COLUMN]
-        # Use returns
+        # Compute returns
         close_prices = close_prices.pct_change().dropna()
         if ma_periods > 1:
             if ma_type == "Exponencial":
-                all_data[ticker] = close_prices.ewm(span=ma_periods).mean()
+                close_prices = close_prices.ewm(span=ma_periods).mean()
             else:
-                all_data[ticker] = close_prices.rolling(window=ma_periods).mean()
-        else:
-            all_data[ticker] = close_prices
-    return all_data.dropna(how='all')
+                close_prices = close_prices.rolling(window=ma_periods).mean()
+        all_data[ticker] = close_prices
+
+    # Align data to common dates
+    all_data = all_data.dropna(how='any')  # Keep only rows where all tickers have data
+    if all_data.empty:
+        st.error("No overlapping data available for the selected tickers after alignment.")
+    return all_data
 
 def plot_correlation_matrix(data, title, method='pearson'):
     plt.clf()
@@ -182,22 +186,28 @@ def plot_correlation_matrix(data, title, method='pearson'):
         corr_matrix = pd.DataFrame(index=data.columns, columns=data.columns)
         for col1 in data.columns:
             for col2 in data.columns:
-                corr_matrix.loc[col1, col2] = dcor.distance_correlation(data[col1].dropna(), data[col2].dropna())
+                # Since data is aligned, no need for individual .dropna()
+                try:
+                    corr_matrix.loc[col1, col2] = dcor.distance_correlation(data[col1].values, data[col2].values)
+                except Exception as e:
+                    st.warning(f"Failed to compute distance correlation for {col1} vs {col2}: {e}")
+                    corr_matrix.loc[col1, col2] = np.nan
         corr_matrix = corr_matrix.astype(float)
         vmin, vmax = 0, 1
     else:
         corr_matrix = data.corr(method=method)
         vmin, vmax = -1, 1
     custom_cmap = sns.diverging_palette(h_neg=10, h_pos=130, s=99, l=55, sep=3, as_cmap=True)
-    sns.heatmap(corr_matrix, cmap=custom_cmap, center=0.8 if method == 'distance' else 0, vmin=0.7 if method == 'distance' else vmin, vmax=vmax, 
-                annot=True, fmt='.2f', annot_kws={'size': 13}, cbar_kws={'label': 'Correlación'}, square=True, ax=ax)
+    sns.heatmap(corr_matrix, cmap=custom_cmap, center=0.8 if method == 'distance' else 0, 
+                vmin=0.7 if method == 'distance' else vmin, vmax=vmax, 
+                annot=True, fmt='.2f', annot_kws={'size': 13}, 
+                cbar_kws={'label': 'Correlación'}, square=True, ax=ax)
     plt.title(title, pad=20, fontsize=16)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
     ax.tick_params(top=True, labeltop=True, bottom=True, labelbottom=True, right=True, labelright=True)
     fig.text(0.5, 0.5, "MTaurus - X: @MTaurus_ok", fontsize=12, color='gray', ha='center', va='center', alpha=0.5)
     plt.tight_layout()
     return fig
-
 
 def validate_tickers(tickers):
     return all(re.match(r'^[A-Za-z0-9./=]+$', t) for t in tickers)
