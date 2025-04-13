@@ -7,4 +7,4 @@ datetime
 requests
 scipy
 fake_useragent
-import dcor
+dcor
