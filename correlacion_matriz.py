@@ -25,9 +25,8 @@ ua = UserAgent()
 # Generic API fetch function
 def fetch_data_from_api(url, params, cookies, headers, parse_func, source_name, ticker):
     headers['User-Agent'] = ua.random
-    st.write(f"Fetching URL: {url} with params: {params}")
+    st.write(f"Debug: Fetching URL: {url} with params: {params} for {ticker} from {source_name}")
     try:
-        # Use certifi for CA certificates
         import certifi
         response = requests.get(url, params=params, cookies=cookies, headers=headers, verify=certifi.where())
         if response.status_code == 200:
@@ -36,17 +35,11 @@ def fetch_data_from_api(url, params, cookies, headers, parse_func, source_name, 
             st.error(f"Error fetching {ticker} from {source_name}: Status code {response.status_code}")
             return pd.DataFrame()
     except requests.exceptions.SSLError as e:
-        st.error(f"SSL error fetching {ticker} from {source_name}: {e}. Trying without verification.")
-        try:
-            response = requests.get(url, params=params, cookies=cookies, headers=headers, verify=False)
-            if response.status_code == 200:
-                return parse_func(response.json())
-            else:
-                st.error(f"Error fetching {ticker} from {source_name}: Status code {response.status_code}")
-                return pd.DataFrame()
-        except Exception as e2:
-            st.error(f"Failed again: {e2}")
-            return pd.DataFrame()
+        st.error(f"SSL error fetching {ticker} from {source_name}: {e}. Check certificate setup.")
+        return pd.DataFrame()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error fetching {ticker} from {source_name}: {e}. Check your connection.")
+        return pd.DataFrame()
     except requests.exceptions.RequestException as e:
         st.error(f"Network error fetching {ticker} from {source_name}: {e}. Check your connection.")
         return pd.DataFrame()
@@ -119,19 +112,26 @@ def descargar_datos_byma(ticker, start_date, end_date):
     return fetch_data_from_api('https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free/chart/historical-series/history', params, cookies, headers, parse_byma, 'ByMA Data', ticker)
 
 @st.cache_data(ttl=CACHE_TTL, hash_funcs={date: lambda x: x.isoformat(), str: lambda x: x})
+
+
 def fetch_stock_data(ticker, start_date, end_date, source='YFinance', resolution='1d'):
+    st.write(f"Debug: Fetching {ticker} from source {source}")
     start_date = start_date if isinstance(start_date, date) else datetime.strptime(start_date, '%Y-%m-%d').date()
     end_date = end_date if isinstance(end_date, date) else datetime.strptime(end_date, '%Y-%m-%d').date()
-    if source == 'YFinance':
+    try:
+        if source == 'YFinance':
+            return descargar_datos_yfinance([ticker], start_date, end_date, resolution).get(ticker, pd.DataFrame())
+        elif source == 'AnálisisTécnico.com.ar':
+            return descargar_datos_analisistecnico(ticker, start_date, end_date)
+        elif source == 'IOL (Invertir Online)':
+            return descargar_datos_iol(ticker, start_date, end_date)
+        elif source == 'ByMA Data':
+            return descargar_datos_byma(ticker, start_date, end_date)
+        st.error(f"Unknown data source: {source}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.warning(f"Failed to fetch {ticker} from {source}: {e}. Falling back to YFinance.")
         return descargar_datos_yfinance([ticker], start_date, end_date, resolution).get(ticker, pd.DataFrame())
-    elif source == 'AnálisisTécnico.com.ar':
-        return descargar_datos_analisistecnico(ticker, start_date, end_date)
-    elif source == 'IOL (Invertir Online)':
-        return descargar_datos_iol(ticker, start_date, end_date)
-    elif source == 'ByMA Data':
-        return descargar_datos_byma(ticker, start_date, end_date)
-    st.error(f"Unknown data source: {source}")
-    return pd.DataFrame()
 
 def calculate_ticker_ratio(data1, data2):
     if data1.empty or data2.empty:
