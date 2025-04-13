@@ -111,27 +111,23 @@ def descargar_datos_byma(ticker, start_date, end_date):
     params = {'symbol': symbol, 'resolution': 'D', 'from': str(from_timestamp), 'to': str(to_timestamp)}
     return fetch_data_from_api('https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free/chart/historical-series/history', params, cookies, headers, parse_byma, 'ByMA Data', ticker)
 
-@st.cache_data(ttl=CACHE_TTL, hash_funcs={date: lambda x: x.isoformat(), str: lambda x: x})
-
-
+# Remove or adjust caching
+@st.cache_data(ttl=CACHE_TTL, hash_funcs={date: lambda x: x.isoformat()})
+# Alternatively, use: st.cache_data.clear() in main()
 def fetch_stock_data(ticker, start_date, end_date, source='YFinance', resolution='1d'):
     st.write(f"Debug: Fetching {ticker} from source {source}")
     start_date = start_date if isinstance(start_date, date) else datetime.strptime(start_date, '%Y-%m-%d').date()
     end_date = end_date if isinstance(end_date, date) else datetime.strptime(end_date, '%Y-%m-%d').date()
-    try:
-        if source == 'YFinance':
-            return descargar_datos_yfinance([ticker], start_date, end_date, resolution).get(ticker, pd.DataFrame())
-        elif source == 'AnálisisTécnico.com.ar':
-            return descargar_datos_analisistecnico(ticker, start_date, end_date)
-        elif source == 'IOL (Invertir Online)':
-            return descargar_datos_iol(ticker, start_date, end_date)
-        elif source == 'ByMA Data':
-            return descargar_datos_byma(ticker, start_date, end_date)
-        st.error(f"Unknown data source: {source}")
-        return pd.DataFrame()
-    except Exception as e:
-        st.warning(f"Failed to fetch {ticker} from {source}: {e}. Falling back to YFinance.")
+    if source == 'YFinance':
         return descargar_datos_yfinance([ticker], start_date, end_date, resolution).get(ticker, pd.DataFrame())
+    elif source == 'AnálisisTécnico.com.ar':
+        return descargar_datos_analisistecnico(ticker, start_date, end_date)
+    elif source == 'IOL (Invertir Online)':
+        return descargar_datos_iol(ticker, start_date, end_date)
+    elif source == 'ByMA Data':
+        return descargar_datos_byma(ticker, start_date, end_date)
+    st.error(f"Unknown data source: {source}")
+    return pd.DataFrame()
 
 def calculate_ticker_ratio(data1, data2):
     if data1.empty or data2.empty:
@@ -221,6 +217,8 @@ def main():
         confirm_data = st.button("Confirmar Datos")
 
     if confirm_data:
+        st.cache_data.clear()  # Clear cache to avoid source persistence
+        st.write(f"Debug: Selected source is {selected_source}")
         tickers = [t.strip() for t in tickers_input.split(",")]
         if len(tickers) > MAX_TICKERS:
             st.error(f"Máximo {MAX_TICKERS} tickers permitidos.")
@@ -230,6 +228,7 @@ def main():
             with st.spinner('Obteniendo y procesando datos...'):
                 resolution = resolutions[selected_resolution]
                 correlation_data = prepare_correlation_data(tickers, start_date, end_date, selected_source, ma_periods, ma_type, resolution)
+                # Rest of the code
                 if not correlation_data.empty:
                     if show_data:
                         st.subheader("Datos Crudos")
