@@ -25,12 +25,27 @@ ua = UserAgent()
 # Generic API fetch function
 def fetch_data_from_api(url, params, cookies, headers, parse_func, source_name, ticker):
     headers['User-Agent'] = ua.random
+    st.write(f"Fetching URL: {url} with params: {params}")
     try:
-        response = requests.get(url, params=params, cookies=cookies, headers=headers, verify=True)
+        # Use certifi for CA certificates
+        import certifi
+        response = requests.get(url, params=params, cookies=cookies, headers=headers, verify=certifi.where())
         if response.status_code == 200:
             return parse_func(response.json())
         else:
             st.error(f"Error fetching {ticker} from {source_name}: Status code {response.status_code}")
+            return pd.DataFrame()
+    except requests.exceptions.SSLError as e:
+        st.error(f"SSL error fetching {ticker} from {source_name}: {e}. Trying without verification.")
+        try:
+            response = requests.get(url, params=params, cookies=cookies, headers=headers, verify=False)
+            if response.status_code == 200:
+                return parse_func(response.json())
+            else:
+                st.error(f"Error fetching {ticker} from {source_name}: Status code {response.status_code}")
+                return pd.DataFrame()
+        except Exception as e2:
+            st.error(f"Failed again: {e2}")
             return pd.DataFrame()
     except requests.exceptions.RequestException as e:
         st.error(f"Network error fetching {ticker} from {source_name}: {e}. Check your connection.")
