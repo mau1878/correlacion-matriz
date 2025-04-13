@@ -8,6 +8,7 @@ import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 from fake_useragent import UserAgent
 import re
+import dcor
 
 # Constants
 CLOSE_COLUMN = 'Close'
@@ -163,6 +164,8 @@ def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, 
                 continue
         
         close_prices = stock_data[CLOSE_COLUMN]
+        # Use returns
+        close_prices = close_prices.pct_change().dropna()
         if ma_periods > 1:
             if ma_type == "Exponencial":
                 all_data[ticker] = close_prices.ewm(span=ma_periods).mean()
@@ -175,10 +178,19 @@ def prepare_correlation_data(tickers, start_date, end_date, source, ma_periods, 
 def plot_correlation_matrix(data, title, method='pearson'):
     plt.clf()
     fig, ax = plt.subplots(figsize=(12, 10), dpi=300)
-    corr_matrix = data.corr(method=method)
+    if method == 'distance':
+        corr_matrix = pd.DataFrame(index=data.columns, columns=data.columns)
+        for col1 in data.columns:
+            for col2 in data.columns:
+                corr_matrix.loc[col1, col2] = dcor.distance_correlation(data[col1].dropna(), data[col2].dropna())
+        corr_matrix = corr_matrix.astype(float)
+        vmin, vmax = 0, 1
+    else:
+        corr_matrix = data.corr(method=method)
+        vmin, vmax = -1, 1
     custom_cmap = sns.diverging_palette(h_neg=10, h_pos=130, s=99, l=55, sep=3, as_cmap=True)
-    sns.heatmap(corr_matrix, cmap=custom_cmap, center=0, vmin=-1, vmax=1, annot=True, fmt='.2f', 
-                annot_kws={'size': 13}, cbar_kws={'label': 'Correlación'}, square=True, ax=ax)
+    sns.heatmap(corr_matrix, cmap=custom_cmap, center=0.8 if method == 'distance' else 0, vmin=0.7 if method == 'distance' else vmin, vmax=vmax, 
+                annot=True, fmt='.2f', annot_kws={'size': 13}, cbar_kws={'label': 'Correlación'}, square=True, ax=ax)
     plt.title(title, pad=20, fontsize=16)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
     ax.tick_params(top=True, labeltop=True, bottom=True, labelbottom=True, right=True, labelright=True)
@@ -186,14 +198,15 @@ def plot_correlation_matrix(data, title, method='pearson'):
     plt.tight_layout()
     return fig
 
+
 def validate_tickers(tickers):
     return all(re.match(r'^[A-Za-z0-9./=]+$', t) for t in tickers)
 
 def main():
     data_sources = ['YFinance', 'AnálisisTécnico.com.ar', 'IOL (Invertir Online)', 'ByMA Data']
-    correlation_methods = ['pearson', 'spearman', 'kendall']
+    correlation_methods = ['pearson', 'spearman', 'kendall', 'distance']
     ma_types = ["Simple", "Exponencial"]
-    resolutions = {"Daily": "1d", "Weekly": "1wk", "Monthly": "1mo"}  # Correct yfinance intervals
+    resolutions = {"Daily": "1d", "Weekly": "1wk", "Monthly": "1mo"}
 
     with st.sidebar:
         selected_source = st.selectbox('Seleccionar Fuente de Datos', data_sources)
@@ -203,8 +216,9 @@ def main():
             **Pearson**: Mide relaciones lineales. Útil para movimientos proporcionales, pero sensible a valores extremos.
             **Spearman**: Evalúa relaciones monótonas basadas en rangos. Bueno para tendencias no lineales.
             **Kendall**: Similar a Spearman, pero más robusto para muestras pequeñas y menos sensible a outliers.
+            **Distance**: Captura dependencias lineales y no lineales, destacando diferencias sutiles.
             """)
-        ma_periods = st.number_input("Periodos de Media Móvil", min_value=1, value=1, step=1)
+        ma_periods = st.number_input("Periodos de Media Móvil", min_value=1, value=5, step=1)
         ma_type = st.selectbox("Tipo de Media Móvil", ma_types)
         selected_resolution = st.selectbox("Resolución Temporal", resolutions.keys(), index=0)
         if selected_source != 'YFinance':
@@ -217,8 +231,7 @@ def main():
         confirm_data = st.button("Confirmar Datos")
 
     if confirm_data:
-        st.cache_data.clear()  # Clear cache to avoid source persistence
-        st.write(f"Debug: Selected source is {selected_source}")
+        st.cache_data.clear()  # Ensure cache doesn’t interfere
         tickers = [t.strip() for t in tickers_input.split(",")]
         if len(tickers) > MAX_TICKERS:
             st.error(f"Máximo {MAX_TICKERS} tickers permitidos.")
@@ -228,7 +241,6 @@ def main():
             with st.spinner('Obteniendo y procesando datos...'):
                 resolution = resolutions[selected_resolution]
                 correlation_data = prepare_correlation_data(tickers, start_date, end_date, selected_source, ma_periods, ma_type, resolution)
-                # Rest of the code
                 if not correlation_data.empty:
                     if show_data:
                         st.subheader("Datos Crudos")
