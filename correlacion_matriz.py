@@ -226,7 +226,7 @@ def main():
             **Pearson**: Mide relaciones lineales. Útil para movimientos proporcionales, pero sensible a valores extremos.
             **Spearman**: Evalúa relaciones monótonas basadas en rangos. Bueno para tendencias no lineales.
             **Kendall**: Similar a Spearman, pero más robusto para muestras pequeñas y menos sensible a outliers.
-            **Distance**: Captura dependencias lineales y no lineales, destacando diferencias sutiles.
+            **Distance**: Captura dependencias lineales y no lineales. Ideal para detectar patrones complejos y diferencias sutiles entre activos que se mueven de manera similar.
             """)
         ma_periods = st.number_input("Periodos de Media Móvil", min_value=1, value=5, step=1)
         ma_type = st.selectbox("Tipo de Media Móvil", ma_types)
